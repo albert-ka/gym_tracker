@@ -1,9 +1,20 @@
-const CACHE_NAME = 'gym-tracker-v1.3.2';
-const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
+const CACHE_NAME = 'gym-tracker-v1.3.5';
+const ASSETS = ['./index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
+    caches.open(CACHE_NAME).then(async (cache) => {
+      // Cache each asset independently: one slow/failed fetch (e.g. the
+      // large index.html on a flaky connection) must not block install,
+      // otherwise no service worker ever activates and the app stops
+      // qualifying as an installable PWA.
+      await Promise.all(ASSETS.map(async (url) => {
+        try {
+          const res = await fetch(url, { cache: 'no-cache' });
+          if (res.ok) await cache.put(url, res);
+        } catch (e) { /* ignore, will be fetched on demand */ }
+      }));
+    })
   );
   self.skipWaiting();
 });
