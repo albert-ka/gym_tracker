@@ -1,24 +1,16 @@
 <!DOCTYPE html>
 <!--
   Gym Tracker
-  v1.3.0 — 2026-08-23
-  Canvis: substituït window.storage (només vàlid dins l'Artifact de Claude) per localStorage,
-  que sí funciona en un fitxer HTML obert directament al navegador. Afegida còpia de seguretat
-  manual (exportar/importar JSON) com a xarxa de seguretat davant pèrdua de dades del navegador.
+  v1.3.1 — 2026-08-23
+  Canvis: la pestanya Progrés (i el suggeridor de pes) ara relaciona sessions amb exercicis
+  pel NOM de la rutina/exercici en lloc de l'ID intern, per no perdre l'històric si les
+  rutines es regeneren (p. ex. en canviar d'origen d'emmagatzematge: fitxer local vs. web allotjada).
 -->
 <html lang="ca">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>Gym Tracker v1.3.0</title>
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#16181b">
-<link rel="icon" href="icon-192.png">
-<link rel="apple-touch-icon" href="icon-192.png">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Gym Tracker">
+<title>Gym Tracker v1.3.1</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap');
@@ -210,7 +202,7 @@ select#unitSelect{width:auto;display:inline-block;}
 
   <header class="top">
     <div class="brand"><div class="mark"></div><h1>Gym Tracker</h1></div>
-    <div class="sub" id="headerSub">seguiment de força · v1.3.0</div>
+    <div class="sub" id="headerSub">seguiment de força · v1.3.1</div>
   </header>
 
   <main>
@@ -297,7 +289,7 @@ select#unitSelect{width:auto;display:inline-block;}
 
 <script>
 /* ---------- helpers ---------- */
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.3.1';
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const round5 = n => Math.round(n*10)/10;
 
@@ -519,18 +511,24 @@ function updateExercise(routineId, exId, field, value){
 }
 
 /* ---------- suggestion engine ---------- */
-function lastEntryFor(routineId, exId){
+function lastEntryFor(routineId, exerciseName){
+  const routine = routines.find(r=>r.id===routineId);
+  const routineName = routine ? routine.name.toLowerCase() : null;
+  const nameLc = (exerciseName||'').toLowerCase();
   for(let i=sessions.length-1;i>=0;i--){
     const s = sessions[i];
-    if(s.routineId!==routineId) continue;
-    const entry = s.entries.find(e=>e.exerciseId===exId);
+    const sessionRoutine = routines.find(r=>r.id===s.routineId);
+    const sessionRoutineName = sessionRoutine ? sessionRoutine.name.toLowerCase() : null;
+    const sameRoutine = s.routineId===routineId || (routineName && sessionRoutineName===routineName);
+    if(!sameRoutine) continue;
+    const entry = s.entries.find(e=>(e.exerciseName||'').toLowerCase()===nameLc);
     if(entry) return {session:s, entry};
   }
   return null;
 }
 
 function suggestNext(routine, ex){
-  const last = lastEntryFor(routine.id, ex.id);
+  const last = lastEntryFor(routine.id, ex.name);
   if(ex.noWeight){
     if(!last) return {weight:null, note:'Pes corporal — registra només les repeticions.', tone:''};
     const sets = last.entry.sets;
@@ -689,16 +687,24 @@ let volumeChart = null;
 
 function epley1RM(weight, reps){ return weight*(1+reps/30); }
 
-function collectSeries(routineId, exId){
+function collectSeries(routineId, exerciseName){
   const points = [];
-  sessions.filter(s=>s.routineId===routineId).forEach(s=>{
-    const entry = s.entries.find(e=>e.exerciseId===exId);
+  const routine = routines.find(r=>r.id===routineId);
+  const routineNameLc = routine ? routine.name.toLowerCase() : null;
+  const nameLc = (exerciseName||'').toLowerCase();
+  sessions.forEach(s=>{
+    const sessionRoutine = routines.find(r=>r.id===s.routineId);
+    const sessionRoutineNameLc = sessionRoutine ? sessionRoutine.name.toLowerCase() : null;
+    const sameRoutine = s.routineId===routineId || (routineNameLc && sessionRoutineNameLc===routineNameLc);
+    if(!sameRoutine) return;
+    const entry = s.entries.find(e=>(e.exerciseName||'').toLowerCase()===nameLc);
     if(!entry) return;
     const best = Math.max(...entry.sets.map(st=>epley1RM(st.weight||0, st.reps||0)), 0);
     const volume = entry.sets.reduce((a,st)=>a+(st.weight||0)*(st.reps||0),0);
     const totalReps = entry.sets.reduce((a,st)=>a+(st.reps||0),0);
     points.push({date:s.date, e1rm: round5(best), volume: round5(volume), totalReps});
   });
+  points.sort((a,b)=> a.date.localeCompare(b.date));
   return points;
 }
 
@@ -723,7 +729,7 @@ function renderProgress(){
   const [routineId, exId] = sel.split('::');
   const routine = routines.find(r=>r.id===routineId);
   const ex = routine ? routine.exercises.find(e=>e.id===exId) : null;
-  const points = collectSeries(routineId, exId);
+  const points = collectSeries(routineId, ex ? ex.name : null);
 
   if(!ex){ body.innerHTML='<p class="empty">Exercici no trobat.</p>'; return; }
   if(points.length===0){
@@ -891,12 +897,6 @@ async function init(){
   showTab('tab-routines');
 }
 init();
-
-if('serviceWorker' in navigator){
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('service-worker.js').catch(()=>{});
-  });
-}
 </script>
 </body>
 </html>
