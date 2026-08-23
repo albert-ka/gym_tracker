@@ -44,8 +44,6 @@ docs/
 
 Es serveix amb **GitHub Pages** des de la carpeta `docs/` de la branca `main` (Settings → Pages).
 
-⚠️ **Important en actualitzar `index.html`:** cal pujar també el número dins `CACHE_NAME` a `service-worker.js` (p. ex. `v1.3.2` → `v1.3.3`). Si no es canvia, el navegador no detecta l'actualització i seguirà servint la versió antiga en caché. Després d'actualitzar, desinstal·la i torna a instal·lar la app al mòbil per assegurar que agafa la versió nova.
-
 ## Llicència
 
 Ús personal.
